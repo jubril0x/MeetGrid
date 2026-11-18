@@ -1,0 +1,222 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", sans-serif;
+  --font-display: "DM Sans", sans-serif;
+  --font-serif: "DM Serif Display", serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background: #f6f3ed;
+    color: #181816;
+    font-family: "Manrope", sans-serif;
+  }
+  button {
+    cursor: pointer;
+  }
+  ::selection {
+    background: #c8ff5a;
+    color: #181816;
+  }
+}
+
+@layer components {
+  .button-dark {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    border-radius: 9999px;
+    background: #181816;
+    padding: 0.72rem 1.2rem;
+    color: white;
+    font-size: 0.82rem;
+    font-weight: 800;
+    transition: 0.2s ease;
+  }
+  .button-dark:hover {
+    background: #ff5833;
+    transform: translateY(-1px);
+  }
+  .button-orange {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    background: #ff5833;
+    padding: 0.72rem 1.2rem;
+    color: white;
+    font-size: 0.82rem;
+    font-weight: 800;
+    transition: 0.2s ease;
+  }
+  .button-orange:hover {
+    background: #e84827;
+    transform: translateY(-1px);
+  }
+  .nav-link {
+    position: relative;
+    padding: 0.5rem 0;
+  }
+  .nav-link::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0.2rem;
+    left: 0;
+    height: 1.5px;
+    background: #181816;
+    transform: scaleX(0);
+    transform-origin: right;
+    transition: transform 0.25s;
+  }
+  .nav-link:hover::after {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+  .eyebrow {
+    margin-bottom: 0.65rem;
+    color: #e24929;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .section-title {
+    font-family: "DM Sans", sans-serif;
+    font-size: clamp(2.3rem, 4vw, 4.1rem);
+    font-weight: 600;
+    line-height: 0.98;
+    letter-spacing: -0.055em;
+  }
+  .section-title span {
+    font-family: "DM Serif Display", serif;
+    font-weight: 400;
+    font-style: italic;
+  }
+  .category-pill {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.7rem;
+    border: 1px solid rgba(0, 0, 0, 0.13);
+    border-radius: 9999px;
+    background: transparent;
+    padding: 0.8rem 1.15rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    transition: 0.2s ease;
+  }
+  .category-pill:hover {
+    border-color: #181816;
+    background: white;
+  }
+  .category-pill-active {
+    border-color: #181816;
+    background: #181816;
+    color: white;
+  }
+  .category-pill-active:hover {
+    background: #181816;
+    color: white;
+  }
+  .filter-button {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 9999px;
+    background: #f6f3ed;
+    padding: 0.65rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .icon-box {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    place-items: center;
+    border-radius: 13px;
+    background: #ebe7dd;
+    color: #e24929;
+  }
+  .field {
+    display: grid;
+    gap: 0.55rem;
+  }
+  .field span {
+    font-size: 0.75rem;
+    font-weight: 800;
+  }
+  .field input,
+  .field select {
+    width: 100%;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 13px;
+    background: white;
+    padding: 0.9rem 1rem;
+    font-size: 0.83rem;
+    outline: none;
+    transition: 0.2s;
+  }
+  .field input:focus,
+  .field select:focus {
+    border-color: #6e42e5;
+    box-shadow: 0 0 0 3px rgba(110, 66, 229, 0.1);
+  }
+  .toggle {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    border-radius: 99px;
+    background: #d4d0c7;
+    transition: 0.2s;
+  }
+  .toggle span {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    transition: 0.2s;
+  }
+  .toggle-on {
+    background: #6e42e5;
+  }
+  .toggle-on span {
+    transform: translateX(20px);
+  }
+}
+
+.hero-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+  mix-blend-mode: soft-light;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -11,9 +11,9 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config
+
 import dj_database_url
-import os
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,14 +26,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config("DEBUG", default=True, cast=bool)
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = [
     "meetgrid.onrender.com",
     "127.0.0.1",
     "localhost",
-    "meetgrid.jubril.dev"
+    "meetgrid.jubril.dev",
 ]
+
+if DEBUG:
+    ALLOWED_HOSTS.append("testserver")
 
 
 # Application definition
@@ -82,9 +85,11 @@ WSGI_APPLICATION = "MeetGrid.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+database_url = config("DATABASE_URL", default="").strip()
+
 DATABASES = {
     "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=database_url or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
         conn_max_age=600,
     )
 }
@@ -130,17 +135,22 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 
-LOGIN_REDIRECT_URL = 'home'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
-LOGIN_URL = 'login'
-
-LOGOUT_REDIRECT_URL = "home"
-
-STATICFILES_DIRS = [
-    BASE_DIR / "static",
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://meetgrid.onrender.com",
+    "https://meetgrid.jubril.dev",
 ]
 
-STATIC_ROOT = BASE_DIR / "staticfiles"
+LOGIN_REDIRECT_URL = "/"
+
+LOGIN_URL = "/api/auth/login/"
+
+LOGOUT_REDIRECT_URL = "/"
 
 STATICFILES_STORAGE = (
     "whitenoise.storage.CompressedManifestStaticFilesStorage"
