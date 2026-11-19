@@ -14,6 +14,13 @@ class Event(models.Model):
         BUSINESS = "Business", "Business"
         WELLNESS = "Wellness", "Wellness"
         COMMUNITY = "Community", "Community"
+        UNIVERSITY = "University", "University"
+        SPORTS = "Sports", "Sports"
+        TECH = "Tech", "Tech"
+        FAITH = "Faith", "Faith"
+        NIGHTLIFE = "Nightlife", "Nightlife"
+        COMEDY = "Comedy", "Comedy"
+        CAREER = "Career", "Career"
 
     class EventType(models.TextChoices):
         IN_PERSON = "in_person", "In person"
@@ -23,7 +30,7 @@ class Event(models.Model):
     title = models.CharField(max_length=140)
     slug = models.SlugField(max_length=160, unique=True)
     description = models.TextField(blank=True)
-    category = models.CharField(max_length=32, choices=Category.choices)
+    category = models.CharField(max_length=48)
     event_type = models.CharField(
         max_length=16,
         choices=EventType.choices,

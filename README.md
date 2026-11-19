@@ -43,9 +43,10 @@ Open http://localhost:5173. The Vite server proxies `/api` to Django on port 800
 | Event grid, search, category, this week | `GET /api/events/` |
 | Event page | `GET /api/events/<slug>/` |
 | Create event / save draft | `POST /api/events/` |
+| Edit or delete your event | `PATCH` or `DELETE /api/events/<slug>/` |
 | Get tickets / leave | `POST /api/events/<slug>/rsvp/` |
 | Save heart | `POST /api/events/<slug>/save/` |
 | My tickets | `GET /api/me/events/?kind=attending\|saved\|hosting` |
 | Sign in, register, sign out | `POST /api/auth/login/`, `/register/`, `/logout/` |
 
-Categories are Music, Arts & culture, Food & drink, Business, Wellness, and Community. Prices are stored as amounts and shown as `Free` or `$48`.
+Suggested categories are Music, Arts & culture, Food & drink, Business, Wellness, Community, University, Sports, Tech, Faith, Nightlife, Comedy, and Career. An organizer can write a category that is not on that list. Prices are stored as amounts and shown as `Free` or `₦5,000`. A flyer link is optional; a blank flyer uses the category photo. Paid events can be listed, and paying for a ticket is not available yet.

@@ -6,6 +6,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.core.paginator import Paginator
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
@@ -22,7 +23,15 @@ FALLBACK_IMAGES = {
     Event.Category.BUSINESS: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1000&q=80",
     Event.Category.WELLNESS: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1000&q=80",
     Event.Category.COMMUNITY: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.UNIVERSITY: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.SPORTS: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.TECH: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.FAITH: "https://images.unsplash.com/photo-1511632765486-a01980e01a18?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.NIGHTLIFE: "https://images.unsplash.com/photo-1566737236500-c8ac43014a67?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.COMEDY: "https://images.unsplash.com/photo-1585699324551-f6c309eedeca?auto=format&fit=crop&w=1000&q=80",
+    Event.Category.CAREER: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=1000&q=80",
 }
+DEFAULT_IMAGE = FALLBACK_IMAGES[Event.Category.COMMUNITY]
 
 DEFAULT_DESCRIPTION = (
     "A gathering for curious people, bright ideas and the kind of energy that stays with you "
@@ -41,15 +50,22 @@ def user_payload(user):
         "id": user.id,
         "username": user.username,
         "firstName": user.first_name or user.username,
+        "email": user.email,
     }
+
+
+def price_amount(event):
+    if event.price == event.price.to_integral():
+        return str(int(event.price))
+    return f"{event.price:.2f}"
 
 
 def price_label(event):
     if event.is_free or event.price == 0:
         return "Free"
     if event.price == event.price.to_integral():
-        return f"${int(event.price)}"
-    return f"${event.price}"
+        return f"₦{int(event.price):,}"
+    return f"₦{event.price:,.2f}"
 
 
 def event_payload(event, user):
@@ -70,6 +86,7 @@ def event_payload(event, user):
         "slug": event.slug,
         "title": event.title,
         "description": event.description or DEFAULT_DESCRIPTION,
+        "descriptionText": event.description,
         "category": event.category,
         "eventType": event.get_event_type_display(),
         "date": event.date.isoformat(),
@@ -77,10 +94,13 @@ def event_payload(event, user):
         "month": event.date.strftime("%b").upper(),
         "day": event.date.day,
         "time": event.time.strftime("%I:%M %p").lstrip("0"),
+        "timeValue": event.time.strftime("%H:%M"),
         "location": event.location,
         "price": price_label(event),
+        "priceAmount": price_amount(event),
         "isFree": event.is_free or event.price == 0,
-        "image": event.image or FALLBACK_IMAGES.get(event.category, FALLBACK_IMAGES[Event.Category.COMMUNITY]),
+        "image": event.image or FALLBACK_IMAGES.get(event.category, DEFAULT_IMAGE),
+        "flyer": event.image,
         "tag": event.tag,
         "attendees": attendee_count,
         "organizer": host,
@@ -148,9 +168,11 @@ def apply_event_data(event, data, partial=False):
             event.title = title
 
     if provided("category"):
-        category = str(data.get("category", "")).strip()
-        if category not in Event.Category.values:
-            errors["category"] = "Choose a category."
+        category = " ".join(str(data.get("category", "")).split())
+        if not category or category.lower() in {"all events", "write your own"}:
+            errors["category"] = "Choose a category, or write your own."
+        elif len(category) > 48:
+            errors["category"] = "Keep the category under 48 characters."
         else:
             event.category = category
 
@@ -193,16 +215,30 @@ def apply_event_data(event, data, partial=False):
             event.location = location
 
     if "description" in data or not partial:
-        event.description = str(data.get("description", "")).strip()
+        description = str(data.get("description", "")).strip()
+        if len(description) > 2000:
+            errors["description"] = "Keep the description under 2,000 characters."
+        else:
+            event.description = description
 
-    if "image" in data:
-        event.image = str(data.get("image", "")).strip()
+    if "image" in data or not partial:
+        image = str(data.get("image", "")).strip()
+        if image and not image.startswith(("http://", "https://")):
+            errors["image"] = "Paste a flyer link that starts with http:// or https://."
+        elif len(image) > 200:
+            errors["image"] = "That flyer link is too long."
+        else:
+            event.image = image
 
     if "tag" in data:
         event.tag = str(data.get("tag", "")).strip()[:40]
 
-    if "hostName" in data:
-        event.host_name = str(data.get("hostName", "")).strip()[:80]
+    if "hostName" in data or not partial:
+        host_name = str(data.get("hostName", "")).strip()
+        if len(host_name) > 80:
+            errors["hostName"] = "Keep the host name under 80 characters."
+        else:
+            event.host_name = host_name
 
     is_free = data.get("isFree", True) if provided("isFree") else event.is_free
     if isinstance(is_free, str):
@@ -213,7 +249,8 @@ def apply_event_data(event, data, partial=False):
         event.price = Decimal("0")
     elif provided("price") or "price" in data:
         try:
-            price = Decimal(str(data.get("price", "")).replace("$", "").strip())
+            raw_price = str(data.get("price", "")).replace("$", "").replace("₦", "").replace(",", "").strip()
+            price = Decimal(raw_price)
         except (InvalidOperation, AttributeError):
             errors["price"] = "Enter a ticket price."
             price = None
@@ -245,6 +282,34 @@ def login_view(request):
         return json_error("Those sign-in details don't match an account.")
     login(request, user)
     return JsonResponse({"user": user_payload(user)})
+
+
+@require_http_methods(["PATCH"])
+def profile_view(request):
+    if not request.user.is_authenticated:
+        return json_error("Sign in to update your account.", status=401)
+    data = read_json(request)
+    if data is None:
+        return json_error("Send a JSON body.")
+
+    first_name = str(data.get("firstName", "")).strip()
+    email = str(data.get("email", "")).strip()
+    if not first_name:
+        return json_error("Add your name.")
+    if len(first_name) > 150:
+        return json_error("Keep your name under 150 characters.")
+    if email:
+        try:
+            validate_email(email)
+        except ValidationError:
+            return json_error("Enter a valid email address.")
+        if User.objects.exclude(pk=request.user.pk).filter(email__iexact=email).exists():
+            return json_error("That email is already used by another account.")
+
+    request.user.first_name = first_name
+    request.user.email = email
+    request.user.save(update_fields=["first_name", "email"])
+    return JsonResponse({"user": user_payload(request.user)})
 
 
 @require_http_methods(["POST"])
@@ -312,9 +377,22 @@ def events_view(request):
             Q(title__icontains=search)
             | Q(location__icontains=search)
             | Q(category__icontains=search)
+            | Q(host_name__icontains=search)
+            | Q(description__icontains=search)
         )
     if category and category != "All events":
         events = events.filter(category=category)
+
+    price_filter = request.GET.get("price", "").strip()
+    if price_filter == "free":
+        events = events.filter(Q(is_free=True) | Q(price=0))
+    elif price_filter == "paid":
+        events = events.filter(is_free=False, price__gt=0)
+
+    event_type = request.GET.get("eventType", "").strip()
+    type_labels = {label: value for value, label in Event.EventType.choices}
+    if event_type in type_labels:
+        events = events.filter(event_type=type_labels[event_type])
 
     today = timezone.localdate()
     if timeframe == "this_week":
@@ -364,6 +442,8 @@ def event_detail_view(request, slug):
     errors = apply_event_data(event, data, partial=True)
     if errors:
         return json_error("Check the highlighted fields.", errors=errors)
+    if "isPublished" in data:
+        event.is_published = data.get("isPublished") is not False
     event.save()
     event = event_queryset(request.user).get(pk=event.pk)
     return JsonResponse(event_payload(event, request.user))
@@ -378,6 +458,8 @@ def rsvp_view(request, slug):
         return json_error("That event could not be found.", status=404)
     if event.is_past:
         return json_error("This event has already ended.")
+    if not event.is_free and event.price > 0 and not event.attendees.filter(pk=request.user.pk).exists():
+        return json_error("Ticket payment opens in the app soon. You can still save this event.")
 
     if event.attendees.filter(pk=request.user.pk).exists():
         event.attendees.remove(request.user)

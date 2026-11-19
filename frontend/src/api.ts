@@ -2,6 +2,7 @@ export type User = {
   id: number;
   username: string;
   firstName: string;
+  email: string;
 };
 
 export type EventItem = {
@@ -9,6 +10,7 @@ export type EventItem = {
   slug: string;
   title: string;
   description: string;
+  descriptionText: string;
   category: string;
   eventType: string;
   date: string;
@@ -16,10 +18,13 @@ export type EventItem = {
   month: string;
   day: number;
   time: string;
+  timeValue: string;
   location: string;
   price: string;
+  priceAmount: string;
   isFree: boolean;
   image: string;
+  flyer: string;
   tag: string;
   attendees: number;
   organizer: string;
@@ -43,10 +48,14 @@ export type EventPage = {
 export type EventDraft = {
   title: string;
   category: string;
+  customCategory: string;
   eventType: string;
   date: string;
   time: string;
   location: string;
+  description: string;
+  image: string;
+  hostName: string;
   isFree: boolean;
   price?: string;
   isPublished: boolean;
@@ -111,11 +120,27 @@ export function logout() {
   return api<{ user: null }>("/api/auth/logout/", { method: "POST" });
 }
 
-export function listEvents(params: { search?: string; category?: string; timeframe?: string; page?: number }) {
+export function updateProfile(firstName: string, email: string) {
+  return api<{ user: User }>("/api/auth/profile/", {
+    method: "PATCH",
+    body: JSON.stringify({ firstName, email }),
+  });
+}
+
+export function listEvents(params: {
+  search?: string;
+  category?: string;
+  timeframe?: string;
+  price?: string;
+  eventType?: string;
+  page?: number;
+}) {
   const query = new URLSearchParams();
   if (params.search) query.set("search", params.search);
   if (params.category && params.category !== "All events") query.set("category", params.category);
   if (params.timeframe) query.set("timeframe", params.timeframe);
+  if (params.price && params.price !== "any") query.set("price", params.price);
+  if (params.eventType && params.eventType !== "any") query.set("eventType", params.eventType);
   query.set("page", String(params.page ?? 1));
   return api<EventPage>(`/api/events/?${query}`);
 }
@@ -126,6 +151,14 @@ export function getEvent(slug: string) {
 
 export function createEvent(draft: EventDraft) {
   return api<EventItem>("/api/events/", { method: "POST", body: JSON.stringify(draft) });
+}
+
+export function updateEvent(slug: string, draft: EventDraft) {
+  return api<EventItem>(`/api/events/${slug}/`, { method: "PATCH", body: JSON.stringify(draft) });
+}
+
+export function deleteEvent(slug: string) {
+  return api<{ detail: string }>(`/api/events/${slug}/`, { method: "DELETE" });
 }
 
 export function rsvp(slug: string) {

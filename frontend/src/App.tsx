@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
   createEvent,
+  deleteEvent,
   getEvent,
   getSession,
   listEvents,
@@ -11,6 +12,8 @@ import {
   register,
   rsvp,
   saveEvent,
+  updateEvent,
+  updateProfile,
   type EventDraft,
   type EventItem,
   type User,
@@ -29,7 +32,11 @@ type IconName =
   | "share"
   | "sparkle"
   | "ticket"
-  | "user";
+  | "user"
+  | "bookmark"
+  | "plus"
+  | "gear"
+  | "logout";
 
 function Icon({
   name,
@@ -93,6 +100,20 @@ function Icon({
         <path d="M4 21a8 8 0 0 1 16 0" />
       </>
     ),
+    bookmark: <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z" />,
+    plus: <path d="M12 5v14M5 12h14" />,
+    gear: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2.5v2.2M12 19.3v2.2M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6" />
+      </>
+    ),
+    logout: (
+      <>
+        <path d="M10 7V5a2 2 0 0 1 2-2h7v18h-7a2 2 0 0 1-2-2v-2" />
+        <path d="M15 12H3m0 0 3-3m-3 3 3 3" />
+      </>
+    ),
   };
   return (
     <svg
@@ -111,6 +132,26 @@ function Icon({
   );
 }
 
+function AccountMenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: IconName;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#181816] hover:bg-[#F6F3ED]"
+    >
+      <Icon name={icon} size={18} />
+      {label}
+    </button>
+  );
+}
+
 const images = {
   hero: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1600&q=80",
   crowd: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1000&q=80",
@@ -118,6 +159,8 @@ const images = {
   food: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=1000&q=80",
   conference: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1000&q=80",
 };
+
+const CUSTOM_CATEGORY = "Write your own";
 
 const categories = [
   { name: "All events", icon: "✦" },
@@ -127,15 +170,26 @@ const categories = [
   { name: "Business", icon: "↗" },
   { name: "Wellness", icon: "≈" },
   { name: "Community", icon: "◎" },
+  { name: "University", icon: "⌂" },
+  { name: "Sports", icon: "○" },
+  { name: "Tech", icon: "⌬" },
+  { name: "Faith", icon: "✶" },
+  { name: "Nightlife", icon: "✺" },
+  { name: "Comedy", icon: "◉" },
+  { name: "Career", icon: "▤" },
 ];
 
 const emptyDraft: EventDraft = {
   title: "",
   category: "",
+  customCategory: "",
   eventType: "In person",
   date: "",
   time: "",
   location: "",
+  description: "",
+  image: "",
+  hostName: "",
   isFree: true,
   price: "",
   isPublished: true,
@@ -153,12 +207,24 @@ function App() {
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [thisWeek, setThisWeek] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [priceFilter, setPriceFilter] = useState("any");
+  const [typeFilter, setTypeFilter] = useState("any");
   const [selected, setSelected] = useState<EventItem | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [draft, setDraft] = useState<EventDraft>(emptyDraft);
   const [draftError, setDraftError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [savingEvent, setSavingEvent] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const [accountOpen, setAccountOpen] = useState<null | "profile" | "settings">(null);
+  const [accountForm, setAccountForm] = useState({ firstName: "", email: "" });
+  const [accountError, setAccountError] = useState("");
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [profileEvents, setProfileEvents] = useState<EventItem[]>([]);
   const [toast, setToast] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -187,6 +253,15 @@ function App() {
   };
 
   useEffect(() => {
+    if (!profileOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [profileOpen]);
+
+  useEffect(() => {
     getSession()
       .then((data) => setUser(data.user))
       .catch(() => setUser(null));
@@ -204,6 +279,8 @@ function App() {
       search,
       category: activeCategory,
       timeframe: thisWeek ? "this_week" : "anytime",
+      price: priceFilter,
+      eventType: typeFilter,
       page: 1,
     })
       .then((data) => {
@@ -225,7 +302,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [search, activeCategory, thisWeek]);
+  }, [search, activeCategory, thisWeek, priceFilter, typeFilter]);
 
   useEffect(() => {
     const syncEventFromUrl = () => {
@@ -242,6 +319,13 @@ function App() {
     window.addEventListener("popstate", syncEventFromUrl);
     return () => window.removeEventListener("popstate", syncEventFromUrl);
   }, []);
+
+  useEffect(() => {
+    if (accountOpen !== "profile" || !user) return;
+    myEvents("hosting")
+      .then((data) => setProfileEvents(data.results.filter((event) => event.isPublished)))
+      .catch(() => setProfileEvents([]));
+  }, [accountOpen, user]);
 
   useEffect(() => {
     if (!ticketsOpen || !user) return;
@@ -294,6 +378,8 @@ function App() {
         search,
         category: activeCategory,
         timeframe: thisWeek ? "this_week" : "anytime",
+        price: priceFilter,
+        eventType: typeFilter,
         page: page + 1,
       });
       setEvents((current) => [...current, ...data.results]);
@@ -330,26 +416,88 @@ function App() {
     }
   };
 
+  const eventPayload = (publish: boolean): EventDraft => ({
+    ...draft,
+    category: draft.category === CUSTOM_CATEGORY ? draft.customCategory.trim() : draft.category,
+    description: draft.description.trim(),
+    image: draft.image.trim(),
+    hostName: draft.hostName.trim(),
+    isPublished: publish,
+  });
+
   const submitEvent = async (publish: boolean) => {
     if (!requireUser()) return;
     setSavingEvent(true);
     setDraftError("");
+    setFieldErrors({});
     try {
-      const created = await createEvent({ ...draft, isPublished: publish });
+      const saved = editingSlug
+        ? await updateEvent(editingSlug, eventPayload(publish))
+        : await createEvent(eventPayload(publish));
       setCreateOpen(false);
+      setEditingSlug(null);
       setDraft(emptyDraft);
       if (publish) {
-        setEvents((current) => [created, ...current.filter((item) => item.slug !== created.slug)]);
-        openEvent(created);
-        notify("Your event is live.");
+        setEvents((current) => [saved, ...current.filter((item) => item.slug !== saved.slug && item.id !== saved.id)]);
+        openEvent(saved);
+        notify(editingSlug ? "Event updated." : "Your event is live.");
       } else {
+        setEvents((current) => current.filter((item) => item.slug !== saved.slug));
+        if (selected?.slug === saved.slug) closeEvent();
         notify("Draft saved. Find it under My tickets, then Hosting.");
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) requireUser();
+      if (error instanceof ApiError && error.errors) setFieldErrors(error.errors);
       setDraftError(error instanceof Error ? error.message : "Could not save the event.");
     } finally {
       setSavingEvent(false);
+    }
+  };
+
+  const openComposer = () => {
+    setEditingSlug(null);
+    setDraft(emptyDraft);
+    setDraftError("");
+    setFieldErrors({});
+    setCreateOpen(true);
+    setMenuOpen(false);
+    setProfileOpen(false);
+  };
+
+  const openEditor = (event: EventItem) => {
+    const known = categories.some((category) => category.name === event.category);
+    setEditingSlug(event.slug);
+    setDraft({
+      title: event.title,
+      category: known ? event.category : CUSTOM_CATEGORY,
+      customCategory: known ? "" : event.category,
+      eventType: event.eventType,
+      date: event.date,
+      time: event.timeValue || "",
+      location: event.location,
+      description: event.descriptionText || "",
+      image: event.flyer || "",
+      hostName: event.organizer,
+      isFree: event.isFree,
+      price: event.isFree ? "" : event.priceAmount,
+      isPublished: event.isPublished,
+    });
+    setDraftError("");
+    setFieldErrors({});
+    setCreateOpen(true);
+  };
+
+  const removeEvent = async (event: EventItem) => {
+    if (!window.confirm(`Delete “${event.title}”? This cannot be undone.`)) return;
+    try {
+      await deleteEvent(event.slug);
+      setEvents((current) => current.filter((item) => item.slug !== event.slug));
+      setTicketEvents((current) => current.filter((item) => item.slug !== event.slug));
+      if (selected?.slug === event.slug) closeEvent();
+      notify("Event deleted.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not delete that event.");
     }
   };
 
@@ -374,6 +522,8 @@ function App() {
         search,
         category: activeCategory,
         timeframe: thisWeek ? "this_week" : "anytime",
+        price: priceFilter,
+        eventType: typeFilter,
         page: 1,
       });
       setEvents(data.results);
@@ -388,30 +538,72 @@ function App() {
   };
 
   const signOut = async () => {
-    await logout();
-    setUser(null);
+    setMenuOpen(false);
+    setProfileOpen(false);
     setTicketsOpen(false);
+    try {
+      await logout();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not sign you out.");
+      return;
+    }
+    setUser(null);
     notify("Signed out.");
     const data = await listEvents({
       search,
       category: activeCategory,
       timeframe: thisWeek ? "this_week" : "anytime",
+      price: priceFilter,
+      eventType: typeFilter,
       page: 1,
     });
     setEvents(data.results);
+    setHasNext(data.hasNext);
+    setPage(data.page);
+    if (selected) remember(await getEvent(selected.slug));
   };
 
-  const openTickets = () => {
+  const openTickets = (kind: "attending" | "saved" | "hosting" = "attending") => {
     if (!requireUser()) return;
-    setTicketKind("attending");
+    setTicketKind(kind);
     setTicketsOpen(true);
+    setMenuOpen(false);
+    setProfileOpen(false);
+    setAccountOpen(null);
+  };
+
+  const openAccount = (mode: "profile" | "settings") => {
+    if (!user) return;
+    setAccountForm({ firstName: user.firstName, email: user.email || "" });
+    setAccountError("");
+    setAccountOpen(mode);
+    setProfileOpen(false);
     setMenuOpen(false);
   };
 
-  const filterCount = (activeCategory !== "All events" ? 1 : 0) + (thisWeek ? 1 : 0);
+  const saveAccount = async () => {
+    setAccountBusy(true);
+    setAccountError("");
+    try {
+      const result = await updateProfile(accountForm.firstName.trim(), accountForm.email.trim());
+      setUser(result.user);
+      setAccountOpen(null);
+      notify("Account updated.");
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : "Could not update your account.");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const filterCount =
+    (activeCategory !== "All events" ? 1 : 0) +
+    (thisWeek ? 1 : 0) +
+    (priceFilter !== "any" ? 1 : 0) +
+    (typeFilter !== "any" ? 1 : 0);
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#F6F3ED] text-[#181816]">
+    <div className="min-h-screen overflow-x-hidden bg-[#F6F3ED] text-[#181816]">
       <header className="fixed inset-x-0 top-0 z-40 border-b border-black/8 bg-[#F6F3ED]/92 backdrop-blur-xl">
         <div className="mx-auto flex h-[76px] max-w-[1440px] items-center justify-between px-5 md:px-8 lg:px-12">
           <button
@@ -430,18 +622,46 @@ function App() {
             <button onClick={openTickets} className="nav-link">
               My tickets
             </button>
-            <button onClick={() => setCreateOpen(true)} className="nav-link">
+            <button onClick={openComposer} className="nav-link">
               For organizers
             </button>
           </nav>
           <div className="hidden items-center gap-3 sm:flex">
             {user ? (
-              <>
-                <span className="text-sm font-semibold">{user.firstName}</span>
-                <button onClick={signOut} className="rounded-full px-4 py-2.5 text-sm font-semibold hover:bg-black/5">
-                  Sign out
+              <div className="relative" ref={profileRef}>
+                <button
+                  onClick={() => setProfileOpen((open) => !open)}
+                  className="grid h-11 w-11 place-items-center rounded-full border border-black/10 bg-white text-[#181816]"
+                  aria-label={`${user.firstName} account`}
+                  aria-expanded={profileOpen}
+                >
+                  <Icon name="user" size={20} />
                 </button>
-              </>
+                {profileOpen && (
+                  <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[280px] rounded-2xl border border-black/10 bg-white p-2 shadow-xl">
+                    <div className="flex items-center gap-3 px-3 py-3">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#181816] text-sm font-bold text-white">
+                        {user.firstName.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{user.firstName}</p>
+                        <p className="truncate text-xs text-black/45">{user.email || user.username}</p>
+                      </div>
+                    </div>
+                    <div className="my-1 border-t border-black/8" />
+                    <AccountMenuItem icon="ticket" label="My tickets" onClick={() => openTickets("attending")} />
+                    <AccountMenuItem icon="bookmark" label="Saved events" onClick={() => openTickets("saved")} />
+                    <div className="my-1 border-t border-black/8" />
+                    <AccountMenuItem icon="calendar" label="Hosting / My events" onClick={() => openTickets("hosting")} />
+                    <AccountMenuItem icon="plus" label="Create event" onClick={openComposer} />
+                    <div className="my-1 border-t border-black/8" />
+                    <AccountMenuItem icon="user" label="Public profile" onClick={() => openAccount("profile")} />
+                    <AccountMenuItem icon="gear" label="Settings" onClick={() => openAccount("settings")} />
+                    <div className="my-1 border-t border-black/8" />
+                    <AccountMenuItem icon="logout" label="Sign out" onClick={signOut} />
+                  </div>
+                )}
+              </div>
             ) : (
               <button
                 onClick={() => {
@@ -453,9 +673,6 @@ function App() {
                 Sign in
               </button>
             )}
-            <button onClick={() => setCreateOpen(true)} className="button-dark">
-              <span className="text-lg leading-none">＋</span> Create event
-            </button>
           </div>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
@@ -480,23 +697,29 @@ function App() {
               <button onClick={openTickets} className="rounded-xl px-4 py-3 text-left hover:bg-white">
                 My tickets
               </button>
-              <button
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthOpen(true);
-                  setMenuOpen(false);
-                }}
-                className="rounded-xl px-4 py-3 text-left hover:bg-white"
-              >
-                {user ? user.firstName : "Sign in"}
-              </button>
-              <button
-                onClick={() => {
-                  setCreateOpen(true);
-                  setMenuOpen(false);
-                }}
-                className="button-orange mt-2 justify-center"
-              >
+              {user ? (
+                <button
+                  onClick={signOut}
+                  className="rounded-xl px-4 py-3 text-left hover:bg-white"
+                >
+                  Sign out
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setAuthMode("login");
+                    setAuthOpen(true);
+                    setMenuOpen(false);
+                  }}
+                  className="rounded-xl px-4 py-3 text-left hover:bg-white"
+                >
+                  Sign in
+                </button>
+              )}
+                <button
+                  onClick={openComposer}
+                  className="button-orange mt-2 justify-center"
+                >
                 Create event
               </button>
             </div>
@@ -514,16 +737,12 @@ function App() {
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(16,15,13,.88)_0%,rgba(16,15,13,.54)_52%,rgba(16,15,13,.12)_100%)]" />
           <div className="absolute -right-8 top-16 h-52 w-52 rounded-full border-[36px] border-[#FF5833]/80 mix-blend-screen md:right-20 md:h-64 md:w-64" />
           <div className="relative z-10 mx-auto flex min-h-[680px] max-w-[1344px] flex-col justify-center px-6 py-20 md:min-h-[710px] md:px-12 lg:px-16">
-            <div className="mb-6 flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[.16em] text-white backdrop-blur-md">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#C8FF5A]" />
-              Live near New York
-            </div>
             <h1 className="font-display max-w-[840px] text-[clamp(3.4rem,7vw,7.4rem)] font-semibold leading-[.88] tracking-[-.065em] text-white">
               Your next great{" "}
               <span className="font-serif font-normal italic text-[#C8FF5A]">story</span> starts here.
             </h1>
             <p className="mt-7 max-w-xl text-base leading-7 text-white/76 md:text-lg">
-              Discover concerts, workshops, food pop-ups and unforgettable gatherings happening around you.
+              Discover concerts, campus programmes, workshops, food pop-ups and gatherings around you.
             </p>
             <div className="mt-10 flex max-w-[900px] flex-col gap-2 rounded-2xl bg-white p-2.5 shadow-2xl md:flex-row md:rounded-full">
               <label className="flex min-w-0 flex-1 items-center gap-3 px-4">
@@ -539,7 +758,7 @@ function App() {
               <div className="hidden w-px bg-black/10 md:block" />
               <button className="flex items-center gap-3 px-4 text-sm font-semibold md:min-w-[180px]">
                 <Icon name="location" size={19} />
-                New York, NY
+                Lagos, Nigeria
                 <Icon name="chevron" size={16} />
               </button>
               <button onClick={scrollToEvents} className="button-orange h-12 justify-center px-7">
@@ -602,14 +821,53 @@ function App() {
                 >
                   This week <Icon name="chevron" size={16} />
                 </button>
-                <button className="filter-button">
+                <button
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  className={`filter-button ${filtersOpen || priceFilter !== "any" || typeFilter !== "any" ? "bg-[#181816] text-white" : ""}`}
+                >
                   Filters
                   {filterCount > 0 && (
-                    <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white">{filterCount}</span>
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filtersOpen || priceFilter !== "any" || typeFilter !== "any" ? "bg-white text-black" : "bg-black text-white"}`}>
+                      {filterCount}
+                    </span>
                   )}
                 </button>
               </div>
             </div>
+            {filtersOpen && (
+              <div className="mb-8 grid gap-4 rounded-[20px] bg-white p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                <label className="field">
+                  <span>Price</span>
+                  <select value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)}>
+                    <option value="any">Any price</option>
+                    <option value="free">Free</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Event type</span>
+                  <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                    <option value="any">Any type</option>
+                    <option>In person</option>
+                    <option>Online</option>
+                    <option>Hybrid</option>
+                  </select>
+                </label>
+                <button
+                  onClick={() => {
+                    setPriceFilter("any");
+                    setTypeFilter("any");
+                    setThisWeek(false);
+                    setActiveCategory("All events");
+                    setQuery("");
+                    setSearch("");
+                  }}
+                  className="rounded-full px-4 py-3 text-sm font-bold"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             {loading ? (
               <div className="rounded-[24px] border border-black/10 bg-white/50 p-16 text-center">
                 <h3 className="font-display text-3xl font-semibold">Looking for events</h3>
@@ -652,7 +910,7 @@ function App() {
                     </div>
                     <button onClick={() => openEvent(event)} className="block w-full pt-5 text-left">
                       <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.13em] text-[#E24929]">
-                        {event.dateLabel} · {event.time}
+                        {event.category} · {event.dateLabel} · {event.time}
                       </p>
                       <h3 className="font-display text-[25px] font-semibold leading-tight tracking-[-.035em] transition group-hover:text-[#E24929]">
                         {event.title}
@@ -677,6 +935,8 @@ function App() {
                     setSearch("");
                     setActiveCategory("All events");
                     setThisWeek(false);
+                    setPriceFilter("any");
+                    setTypeFilter("any");
                   }}
                   className="button-dark mx-auto mt-6"
                 >
@@ -713,7 +973,7 @@ function App() {
                   Publish your event, keep the guest list, and share a link people can open immediately.
                 </p>
                 <button
-                  onClick={() => setCreateOpen(true)}
+                  onClick={openComposer}
                   className="mt-8 flex items-center gap-2 rounded-full bg-white px-6 py-3.5 text-sm font-extrabold text-black transition hover:bg-[#C8FF5A]"
                 >
                   Start creating—it’s free <Icon name="arrow" size={18} />
@@ -726,8 +986,8 @@ function App() {
                     <div className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[#E24929]">Friday · 7:30 PM</div>
                     <h3 className="font-display text-2xl font-bold">Sounds After Sunset</h3>
                     <div className="mt-4 flex items-center justify-between border-t border-black/10 pt-3 text-xs font-bold">
-                      <span>Elsewhere, Brooklyn</span>
-                      <span>$36</span>
+                      <span>New Afrika Shrine, Ikeja</span>
+                      <span>₦8,000</span>
                     </div>
                   </div>
                 </div>
@@ -762,6 +1022,22 @@ function App() {
                 happen<span className="text-[#C8FF5A]">.</span>
               </button>
               <div className="flex items-center gap-2">
+                {selected.isOwner && !selected.isPast && (
+                  <button
+                    onClick={() => openEditor(selected)}
+                    className="rounded-full border border-white/12 bg-white/8 px-4 py-2.5 text-xs font-bold transition hover:bg-white/15"
+                  >
+                    Edit
+                  </button>
+                )}
+                {selected.isOwner && (
+                  <button
+                    onClick={() => removeEvent(selected)}
+                    className="rounded-full border border-white/12 bg-white/8 px-4 py-2.5 text-xs font-bold transition hover:bg-white/15"
+                  >
+                    Delete
+                  </button>
+                )}
                 <button
                   onClick={() => shareEvent(selected)}
                   className="flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-4 py-2.5 text-xs font-bold transition hover:bg-white/15"
@@ -822,10 +1098,14 @@ function App() {
                   </div>
                 </div>
                 <button
-                  onClick={() => notify(`You're viewing events from ${selected.organizer}.`)}
+                  onClick={() => {
+                    setQuery(selected.organizer);
+                    closeEvent();
+                    window.setTimeout(scrollToEvents, 80);
+                  }}
                   className="rounded-full bg-white/8 px-4 py-2 text-xs font-bold transition hover:bg-white/15"
                 >
-                  Follow
+                  Their events
                 </button>
               </div>
 
@@ -891,9 +1171,13 @@ function App() {
                       {selected.isAttending ? "Your spot is saved" : "Save your spot"}
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-white/50">
-                      {selected.isAttending
-                        ? "This ticket is listed under My tickets."
-                        : "Your ticket is saved to your account as soon as you register."}
+                      {selected.isPast
+                        ? "This event has ended."
+                        : selected.isAttending
+                          ? "This ticket is listed under My tickets."
+                          : selected.isFree
+                            ? "Your ticket is saved to your account as soon as you register."
+                            : "This event has a ticket price. Saving it is open now. Paying inside the app comes next."}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-4">
@@ -903,11 +1187,11 @@ function App() {
                     </div>
                     <button
                       onClick={() => toggleRsvp(selected)}
-                      disabled={selected.isPast}
+                      disabled={selected.isPast || (!selected.isFree && !selected.isAttending)}
                       className="flex items-center gap-2 rounded-full bg-[#C8FF5A] px-6 py-3.5 text-xs font-extrabold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Icon name="ticket" size={17} />
-                      {selected.isAttending ? "Leave event" : selected.isFree ? "Register free" : "Get tickets"}
+                      {selected.isAttending ? "Leave event" : selected.isFree ? "Register free" : "Pay in app soon"}
                     </button>
                   </div>
                 </div>
@@ -948,15 +1232,31 @@ function App() {
       )}
 
       {createOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm" onMouseDown={() => setCreateOpen(false)}>
+        <div
+          className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+          onMouseDown={() => {
+            setCreateOpen(false);
+            setEditingSlug(null);
+          }}
+        >
           <div onMouseDown={(e) => e.stopPropagation()} className="my-8 w-full max-w-[660px] rounded-[28px] bg-[#F6F3ED] p-6 shadow-2xl md:p-9">
             <div className="mb-8 flex items-start justify-between">
               <div>
                 <p className="eyebrow">Organizer studio</p>
-                <h2 className="font-display text-4xl font-semibold tracking-[-.04em]">Create an event</h2>
-                <p className="mt-2 text-sm text-black/50">Add the essentials now. You can refine it before publishing.</p>
+                <h2 className="font-display text-4xl font-semibold tracking-[-.04em]">
+                  {editingSlug ? "Edit event" : "Create an event"}
+                </h2>
+                <p className="mt-2 text-sm text-black/50">
+                  Add the essentials now. A flyer is optional. Listing is open, and ticket checkout comes next.
+                </p>
               </div>
-              <button onClick={() => setCreateOpen(false)} className="rounded-full border border-black/10 p-2.5">
+              <button
+                onClick={() => {
+                  setCreateOpen(false);
+                  setEditingSlug(null);
+                }}
+                className="rounded-full border border-black/10 p-2.5"
+              >
                 <Icon name="close" />
               </button>
             </div>
@@ -968,6 +1268,7 @@ function App() {
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                   placeholder="Give your event a great name"
                 />
+                {fieldErrors.title && <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.title}</p>}
               </label>
               <div className="grid gap-5 sm:grid-cols-2">
                 <label className="field">
@@ -977,7 +1278,9 @@ function App() {
                     {categories.slice(1).map((category) => (
                       <option key={category.name}>{category.name}</option>
                     ))}
+                    <option>{CUSTOM_CATEGORY}</option>
                   </select>
+                  {fieldErrors.category && <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.category}</p>}
                 </label>
                 <label className="field">
                   <span>Event type</span>
@@ -998,6 +1301,61 @@ function App() {
                   <input type="time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} />
                 </label>
               </div>
+              {draft.category === CUSTOM_CATEGORY && (
+                <label className="field">
+                  <span>Your category</span>
+                  <input
+                    value={draft.customCategory}
+                    onChange={(e) => setDraft({ ...draft, customCategory: e.target.value })}
+                    placeholder="Faculty week, hall week, departmental dinner"
+                    maxLength={48}
+                  />
+                </label>
+              )}
+              <label className="field">
+                <span>Host name</span>
+                <input
+                  value={draft.hostName}
+                  onChange={(e) => setDraft({ ...draft, hostName: e.target.value })}
+                  placeholder="Your name, or a society such as Faculty of Science"
+                  maxLength={80}
+                />
+                {fieldErrors.hostName && <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.hostName}</p>}
+              </label>
+              <label className="field">
+                <span>About this event</span>
+                <textarea
+                  value={draft.description}
+                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                  placeholder="Who it is for, what happens, and what people should bring"
+                  rows={4}
+                  maxLength={2000}
+                  className="resize-y"
+                />
+                {fieldErrors.description && (
+                  <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.description}</p>
+                )}
+              </label>
+              <label className="field">
+                <span>Flyer link</span>
+                <input
+                  value={draft.image}
+                  onChange={(e) => setDraft({ ...draft, image: e.target.value })}
+                  placeholder="https:// — leave blank to use the category photo"
+                />
+                {fieldErrors.image && <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.image}</p>}
+                {draft.image.trim().startsWith("http") && (
+                  <img
+                    src={draft.image.trim()}
+                    key={draft.image.trim()}
+                    alt="Flyer preview"
+                    className="h-40 w-full rounded-xl object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                )}
+              </label>
               <label className="field">
                 <span>Venue or online link</span>
                 <input
@@ -1005,12 +1363,15 @@ function App() {
                   onChange={(e) => setDraft({ ...draft, location: e.target.value })}
                   placeholder="Search for a venue or add a link"
                 />
+                {fieldErrors.location && <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.location}</p>}
               </label>
               <div className="rounded-2xl border border-black/10 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <strong className="text-sm">This is a paid event</strong>
-                    <p className="mt-1 text-xs text-black/45">Set a ticket price. Free events stay at zero.</p>
+                    <p className="mt-1 text-xs text-black/45">
+                      The price is shown on the event. Guests cannot pay inside the app yet.
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -1028,8 +1389,9 @@ function App() {
                       inputMode="decimal"
                       value={draft.price}
                       onChange={(e) => setDraft({ ...draft, price: e.target.value })}
-                      placeholder="48"
+                      placeholder="5000"
                     />
+                    {fieldErrors.price && <p className="text-xs font-semibold text-[#E24929]">{fieldErrors.price}</p>}
                   </label>
                 )}
               </div>
@@ -1040,7 +1402,7 @@ function App() {
                 Save draft
               </button>
               <button onClick={() => submitEvent(true)} disabled={savingEvent} className="button-orange justify-center px-7">
-                {savingEvent ? "Saving" : "Publish"} <Icon name="arrow" size={18} />
+                {savingEvent ? "Saving" : editingSlug ? "Save changes" : "Publish"} <Icon name="arrow" size={18} />
               </button>
             </div>
           </div>
@@ -1048,7 +1410,7 @@ function App() {
       )}
 
       {authOpen && (
-        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onMouseDown={() => setAuthOpen(false)}>
+        <div className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onMouseDown={() => setAuthOpen(false)}>
           <div onMouseDown={(e) => e.stopPropagation()} className="w-full max-w-[440px] rounded-[28px] bg-[#F6F3ED] p-6 shadow-2xl md:p-8">
             <div className="mb-6 flex items-start justify-between">
               <div>
@@ -1124,6 +1486,86 @@ function App() {
         </div>
       )}
 
+      {accountOpen && user && (
+        <div className="fixed inset-0 z-[65] grid place-items-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm" onMouseDown={() => setAccountOpen(null)}>
+          <div onMouseDown={(e) => e.stopPropagation()} className="my-8 w-full max-w-[480px] rounded-[28px] bg-[#F6F3ED] p-6 shadow-2xl md:p-8">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-12 w-12 place-items-center rounded-full bg-[#181816] font-display text-lg font-bold text-white">
+                  {user.firstName.slice(0, 1).toUpperCase()}
+                </div>
+                <div>
+                  <p className="eyebrow">{accountOpen === "settings" ? "Account" : "Public profile"}</p>
+                  <h2 className="font-display text-3xl font-semibold tracking-[-.04em]">{user.firstName}</h2>
+                  <p className="text-sm text-black/50">{user.email || user.username}</p>
+                </div>
+              </div>
+              <button onClick={() => setAccountOpen(null)} className="rounded-full border border-black/10 p-2.5" aria-label="Close account">
+                <Icon name="close" />
+              </button>
+            </div>
+            {accountOpen === "settings" ? (
+              <form
+                className="grid gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveAccount();
+                }}
+              >
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    value={accountForm.firstName}
+                    onChange={(e) => setAccountForm({ ...accountForm, firstName: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={accountForm.email}
+                    onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
+                    placeholder="maya@email.com"
+                  />
+                </label>
+                {accountError && <p className="text-sm font-semibold text-[#E24929]">{accountError}</p>}
+                <button type="submit" disabled={accountBusy} className="button-orange justify-center">
+                  {accountBusy ? "Saving" : "Save settings"}
+                </button>
+              </form>
+            ) : (
+              <div>
+                <p className="text-sm leading-6 text-black/55">
+                  This is the name people see on events you host.
+                </p>
+                <div className="mt-5 grid gap-2">
+                  {profileEvents.length === 0 ? (
+                    <p className="rounded-2xl bg-white px-4 py-6 text-sm text-black/50">No published events yet.</p>
+                  ) : (
+                    profileEvents.map((event) => (
+                      <button
+                        key={event.id}
+                        onClick={() => {
+                          setAccountOpen(null);
+                          openEvent(event);
+                        }}
+                        className="flex items-center gap-3 rounded-2xl bg-white p-3 text-left"
+                      >
+                        <img src={event.image} alt="" className="h-12 w-12 rounded-xl object-cover" />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{event.title}</span>
+                          <span className="block truncate text-xs text-black/50">{event.dateLabel} · {event.location}</span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {ticketsOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm" onMouseDown={() => setTicketsOpen(false)}>
           <div onMouseDown={(e) => e.stopPropagation()} className="my-8 w-full max-w-[720px] rounded-[28px] bg-[#F6F3ED] p-6 shadow-2xl md:p-9">
@@ -1132,7 +1574,11 @@ function App() {
                 <p className="eyebrow">Your plans</p>
                 <h2 className="font-display text-4xl font-semibold tracking-[-.04em]">My tickets</h2>
               </div>
-              <button onClick={() => setTicketsOpen(false)} className="rounded-full border border-black/10 p-2.5">
+              <button
+                onClick={() => setTicketsOpen(false)}
+                className="rounded-full border border-black/10 p-2.5"
+                aria-label="Close tickets"
+              >
                 <Icon name="close" />
               </button>
             </div>
@@ -1183,7 +1629,7 @@ function App() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#181816] px-5 py-3 text-sm font-semibold text-white shadow-2xl">
+        <div className="fixed bottom-6 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#181816] px-5 py-3 text-sm font-semibold text-white shadow-2xl">
           <span className="grid h-5 w-5 place-items-center rounded-full bg-[#C8FF5A] text-black">
             <Icon name="check" size={13} />
           </span>
